@@ -15,12 +15,13 @@
 #define OLED_SDA_PIN 5
 #define OLED_SCL_PIN 6
 #define ONE_WIRE_BUS_PIN 9
-#define STEP_PIN_X 2
-#define STEP_PIN_Y 3
-#define STEP_PIN_Z 4
+#define STEP_PIN 19
 #define HEARTBEAT_PIN 18
-#define ANALOG_TEMP_PIN 0  // only use pin 0-4
-#define WEIGHT_PIN 1  // only use pin 0-4
+#define ANALOG_TEMP_PIN 4  // only use pin 0-4
+#define WEIGHT_PIN 3  // only use pin 0-4
+#define ACC_X_PIN 0
+#define ACC_Y_PIN 1
+#define ACC_Z_PIN 2
 
 // ----------------------------------------------------------------------------
 // CHANGE MAPPINGS BELOW
@@ -29,19 +30,19 @@
 #define ANALOG_TEMP_MIN_OUT 30
 #define ANALOG_TEMP_MAX_OUT 40
 
-#define WEIGHT_MIN_IN 0
-#define WEIGHT_MAX_IN 4095
+#define WEIGHT_MIN_IN 5
+#define WEIGHT_MAX_IN 3723//4095
 #define WEIGHT_MIN_OUT 0
-#define WEIGHT_MAX_OUT 200
+#define WEIGHT_MAX_OUT 100
 
 #define BPM_AVG 3  // number of beats to use to calculate BPM
 #define INVALID_BEAT_GAP 3500  // time (ms) between two beats before it is invalid
 
-float STEP_THRESHOLD 1.38 //threshold voltage corresponding to 1.46G
 // CHANGE BELOW WIFI ACCESS POINT DETAILS
 // The ESP32 creates its own wifi network that other devices can connect to
 const char *ssid = "24771767";
-const char *password = "12345678";
+const char *password = "123456789";
+
 // ----------------------------------------------------------------------------
 
 // initialise Wi-fi server
@@ -64,6 +65,29 @@ String newestString = ",,,,";  // used to send to website and serial
 volatile unsigned long steps = 0;
 volatile unsigned long lastStepTime = 0;
 volatile unsigned long beatTimes[BPM_AVG] = {};
+volatile double acc[6]= {0, analogRead(ACC_X_PIN), 0, analogRead(ACC_Y_PIN), 0, analogRead(ACC_Z_PIN)};
+unsigned long last_millis=millis();
+float weights[11] = {0};
+uint8_t cooldown = 0;
+
+
+double jerk(){
+  return sqrt((acc[1]-acc[0])(acc[1]-acc[0])+ (acc[3]-acc[2])(acc[3]-acc[2]) + (acc[5]-acc[4])* (acc[5]-acc[4]));
+}
+
+
+float avgWeight(float w)
+{
+  float total;
+  for(int i = 0; i++;i<10)
+  {
+      total = total + weights[i];
+      weights[i+1] = weights[i];
+  } 
+      total= total+w;
+      weights[0]=w;
+   return total/11.0;
+}
 
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
 {
@@ -81,18 +105,37 @@ void updateSingleString() {
 // This function is called every loop.
 // The values it updates are then used to update the website asynchronously, update the OLED and sent via serial to PC.
 void updateValues() {
-  // --> Digital temperature
-  sensors.requestTemperatures();
-  String temp_value = String(sensors.getTempCByIndex(0));
-  newestStrings[0] = temp_value;
 
+ // --> Digital temperature
+  sensors.requestTemperatures();
+
+  if ((millis() - last_millis) > 1000){  
+  String temp_value = String(sensors.getTempCByIndex(0));
+ // newestStrings[0] = temp_value;  
+  last_millis = millis();
+  }
+
+ // --> Weight
+  //newestStrings[2] = avgWeight(mapfloat(analogRead(WEIGHT_PIN), WEIGHT_MIN_IN, WEIGHT_MAX_IN, WEIGHT_MIN_OUT, WEIGHT_MAX_OUT));
+ 
   // --> Analogue RTD temperature
-  newestStrings[1] = mapfloat(analogRead(ANALOG_TEMP_PIN), ANALOG_TEMP_MIN_IN, ANALOG_TEMP_MAX_IN, ANALOG_TEMP_MIN_OUT, ANALOG_TEMP_MAX_OUT);
+// newestStrings[1] = mapfloat(analogRead(ANALOG_TEMP_PIN), ANALOG_TEMP_MIN_IN, ANALOG_TEMP_MAX_IN, ANALOG_TEMP_MIN_OUT, ANALOG_TEMP_MAX_OUT);
   
-  // --> Weight
-  newestStrings[2] = mapfloat(analogRead(WEIGHT_PIN), WEIGHT_MIN_IN, WEIGHT_MAX_IN, WEIGHT_MIN_OUT, WEIGHT_MAX_OUT);
 
   // --> Pedometer
+  acc[0] = acc[1];
+  acc[1] = analogRead(ACC_X_PIN);
+  acc[2] = acc[3];
+  acc[3] = analogRead(ACC_Y_PIN);
+  acc[4] = acc[5];
+  acc[5] = analogRead(ACC_Z_PIN);
+
+  newestStrings[2] = jerk();
+  if ((jerk()>280) && (cooldown <1)) {//300
+    cooldown =1;
+    steps++;
+    } 
+  if ((jerk()<50) && (cooldown >0)) cooldown = 0;
   newestStrings[3] = steps;
 
   // --> Heartrate
@@ -103,9 +146,9 @@ void updateValues() {
     }
   }
   if (millis() - beatTimes[BPM_AVG - 1] > INVALID_BEAT_GAP || !valid) {  // if no beat in last 3.5 seconds...
-    newestStrings[4] = "--";
+   // newestStrings[4] = "--";
   } else {
-    newestStrings[4] = String(1.0 / ((float)(beatTimes[BPM_AVG - 1] - beatTimes[0]) / (float)(BPM_AVG - 1)) * 1000.0 * 60.0);
+   // newestStrings[4] = String(1.0 / ((float)(beatTimes[BPM_AVG - 1] - beatTimes[0]) / (float)(BPM_AVG - 1)) * 1000.0 * 60.0);
   }
 
   updateSingleString();
@@ -287,8 +330,8 @@ void setup(void) {
 
   // onboard LED setup
   ws2812fx.init();
-  ws2812fx.setBrightness(255);
-  ws2812fx.setSpeed(200);
+  ws2812fx.setBrightness(10);
+  ws2812fx.setSpeed(100);
   ws2812fx.setMode(FX_MODE_RAINBOW_CYCLE);
   ws2812fx.start();
 
@@ -296,6 +339,7 @@ void setup(void) {
   Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
   u8g2.begin();
   u8g2.setFont(u8g2_font_helvB08_tf);
+  //u8g2.setFont(u8g2_font_helvB10_tf);
 
   // Digital temperature sensor setup
   sensors.begin();
