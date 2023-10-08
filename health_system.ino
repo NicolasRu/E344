@@ -12,16 +12,29 @@
 #define LED_COUNT 1
 #define LED_PIN 8  // connected as such on ESP32 C3 board
 // custom pin connections:
+
+// #define OLED_SDA_PIN 5
+// #define OLED_SCL_PIN 6
+// #define ONE_WIRE_BUS_PIN 9
+// #define STEP_PIN 19
+// #define HEARTBEAT_PIN 18
+// #define ANALOG_TEMP_PIN 4  // only use pin 0-4
+// #define WEIGHT_PIN 3  // only use pin 0-4
+// #define ACC_X_PIN 0
+// #define ACC_Y_PIN 1
+// #define ACC_Z_PIN 2
+
 #define OLED_SDA_PIN 5
 #define OLED_SCL_PIN 6
 #define ONE_WIRE_BUS_PIN 9
 #define STEP_PIN 19
 #define HEARTBEAT_PIN 18
-#define ANALOG_TEMP_PIN 4  // only use pin 0-4
-#define WEIGHT_PIN 3  // only use pin 0-4
-#define ACC_X_PIN 0
-#define ACC_Y_PIN 1
-#define ACC_Z_PIN 2
+#define ANALOG_TEMP_PIN 0  // only use pin 0-4
+#define WEIGHT_PIN 1  // only use pin 0-4
+#define ACC_X_PIN 2
+#define ACC_Y_PIN 3
+#define ACC_Z_PIN 4
+
 
 // ----------------------------------------------------------------------------
 // CHANGE MAPPINGS BELOW
@@ -40,7 +53,7 @@
 
 // CHANGE BELOW WIFI ACCESS POINT DETAILS
 // The ESP32 creates its own wifi network that other devices can connect to
-const char *ssid = "24771767";
+const char *ssid = "24771767";//"";
 const char *password = "123456789";
 
 // ----------------------------------------------------------------------------
@@ -72,22 +85,11 @@ uint8_t cooldown = 0;
 
 
 double jerk(){
-  return sqrt((acc[1]-acc[0])(acc[1]-acc[0])+ (acc[3]-acc[2])(acc[3]-acc[2]) + (acc[5]-acc[4])* (acc[5]-acc[4]));
+  return sqrt((acc[1]-acc[0])*(acc[1]-acc[0])+ (acc[3]-acc[2])*(acc[3]-acc[2]) + (acc[5]-acc[4])* (acc[5]-acc[4]));
 }
 
 
-float avgWeight(float w)
-{
-  float total;
-  for(int i = 0; i++;i<10)
-  {
-      total = total + weights[i];
-      weights[i+1] = weights[i];
-  } 
-      total= total+w;
-      weights[0]=w;
-   return total/11.0;
-}
+
 
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
 {
@@ -106,20 +108,16 @@ void updateSingleString() {
 // The values it updates are then used to update the website asynchronously, update the OLED and sent via serial to PC.
 void updateValues() {
 
- // --> Digital temperature
-  sensors.requestTemperatures();
-
+ // --> Weight
   if ((millis() - last_millis) > 1000){  
-  String temp_value = String(sensors.getTempCByIndex(0));
- // newestStrings[0] = temp_value;  
+   newestStrings[2] = mapfloat(analogRead(WEIGHT_PIN), WEIGHT_MIN_IN, WEIGHT_MAX_IN, WEIGHT_MIN_OUT, WEIGHT_MAX_OUT);  
   last_millis = millis();
   }
 
- // --> Weight
-  //newestStrings[2] = avgWeight(mapfloat(analogRead(WEIGHT_PIN), WEIGHT_MIN_IN, WEIGHT_MAX_IN, WEIGHT_MIN_OUT, WEIGHT_MAX_OUT));
+
  
   // --> Analogue RTD temperature
-// newestStrings[1] = mapfloat(analogRead(ANALOG_TEMP_PIN), ANALOG_TEMP_MIN_IN, ANALOG_TEMP_MAX_IN, ANALOG_TEMP_MIN_OUT, ANALOG_TEMP_MAX_OUT);
+ newestStrings[1] = mapfloat(analogRead(ANALOG_TEMP_PIN), ANALOG_TEMP_MIN_IN, ANALOG_TEMP_MAX_IN, ANALOG_TEMP_MIN_OUT, ANALOG_TEMP_MAX_OUT);
   
 
   // --> Pedometer
@@ -130,7 +128,7 @@ void updateValues() {
   acc[4] = acc[5];
   acc[5] = analogRead(ACC_Z_PIN);
 
-  newestStrings[2] = jerk();
+  //newestStrings[2] = jerk();
   if ((jerk()>280) && (cooldown <1)) {//300
     cooldown =1;
     steps++;
@@ -187,138 +185,149 @@ void setup(void) {
   // server setup
   server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
     String htmlContent = R"=====(
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Health Monitoring System</title>
-        <style>
-          body {
-            font-family: 'Arial', sans-serif;
-            background-color: #f9f9f9;
-            margin: 0;
-            padding: 0;
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Health Monitoring System - Synthwave Theme</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background: linear-gradient(135deg, #240046, #0700b8, #00ff88);
+      background-size: 200% 200%;
+      animation: gradientBG 10s ease infinite;
+      margin: 0;
+      padding: 0;
+    }
+
+    @keyframes gradientBG {
+      0% {
+        background-position: 0% 50%;
+      }
+      50% {
+        background-position: 100% 50%;
+      }
+      100% {
+        background-position: 0% 50%;
+      }
+    }
+
+    h1 {
+      text-align: center;
+      margin: 30px 0;
+      color: #ff6ac1;
+      font-size: 70px;
+      text-shadow: 4px 4px 0px rgba(0, 0, 0, 0.2);
+    }
+
+    .values-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 20px;
+    }
+
+    .value-box {
+      width: 350px;
+      height: 300px;
+      padding: 25px;
+      background-color: rgba(0, 0, 0, 0.4);
+      border-radius: 8px;
+      box-shadow: 0 10px 10px rgba(0, 0, 0, 0.4);
+      margin: 10px;
+      text-align: center;
+      backdrop-filter: blur(8px);
+    }
+
+    .value-title {
+      font-size: 40px;
+      font-weight: bold;
+      color: #ff6ac1;
+      text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.2);
+    }
+
+    .value {
+      font-size: 60px;
+      color: #00ff88;
+      text-shadow: 3px 3px 0px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Media Query for Smartphones */
+    @media (min-width: 1200px) {
+      h1 {
+        font-size: 40px;
+      }
+
+      .value-box {
+        width: 150px;
+        height: 100px;
+        padding: 20px;
+      }
+
+      .value-title {
+        font-size: 16px;
+      }
+
+      .value {
+        font-size: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Health Monitoring System</h1>
+  <div class="values-container">
+    <div class="value-box">
+      <div class="value-title">RTD analogue temperature</div>
+      <div class="value" id="value2"></div>
+    </div>
+    <div class="value-box">
+      <div class="value-title">Weight</div>
+      <div class="value" id="value3"></div>
+    </div>
+    <div class="value-box">
+      <div class="value-title">Pedometer count</div>
+      <div class="value" id="value4"></div>
+    </div>
+    <div class="value-box">
+      <div class="value-title">Heartrate</div>
+      <div class="value" id="value5"></div>
+    </div>
+  </div>
+
+  <script>
+    function updateValues() {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            var response = xhr.responseText;
+            var values = response.split(',');
+            document.getElementById('value2').textContent = values[1].trim() + " \u2103";
+            document.getElementById('value3').textContent = values[2].trim() + " kg";
+            document.getElementById('value4').textContent = values[3].trim() + " steps";
+            document.getElementById('value5').textContent = values[4].trim() + " BPM";
+          } else {
+            document.getElementById('value2').textContent = "No data!";
+            document.getElementById('value3').textContent = "No data!";
+            document.getElementById('value4').textContent = "No data!";
+            document.getElementById('value5').textContent = "No data!";
           }
-      
-          h1 {
-            text-align: center;
-            margin: 30px 0;
-            color: #4CAF50;
-            font-size: 70px;
-          }
-      
-          .values-container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            margin: 20px;
-          }
-      
-          .value-box {
-            width: 350px;
-            height: 300px;
-            padding: 25px;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 10px 10px rgba(0, 0, 0, 0.1);
-            margin: 10px;
-            text-align: center;
-          }
-      
-          .value-title {
-            font-size: 40px;
-            font-weight: bold;
-            color: #333;
-          }
-      
-          .value {
-            font-size: 60px;
-            color: #4CAF50;
-          }
-      
-          /* Media Query for Smartphones */
-          @media (min-width: 1200px) {
-            h1 {
-              font-size: 40px;
-            }
-      
-            .value-box {
-              width: 150px;
-              height: 100px;
-              padding: 20px;
-            }
-      
-            .value-title {
-              font-size: 16px;
-            }
-      
-            .value {
-              font-size: 20px;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <h1>Health Monitoring System</h1>
-        <div class="values-container">
-          <div class="value-box">
-            <div class="value-title">Digital temperature (1-wire)</div>
-            <div class="value" id="value1"></div>
-          </div>
-          <div class="value-box">
-            <div class="value-title">RTD analogue temperature</div>
-            <div class="value" id="value2"></div>
-          </div>
-          <div class="value-box">
-            <div class="value-title">Weight</div>
-            <div class="value" id="value3"></div>
-          </div>
-          <div class="value-box">
-            <div class="value-title">Pedometer count</div>
-            <div class="value" id="value4"></div>
-          </div>
-          <div class="value-box">
-            <div class="value-title">Heartrate</div>
-            <div class="value" id="value5"></div>
-          </div>
-        </div>
-      
-        <script>
-          function updateValues() {
-            var xhr = new XMLHttpRequest();
-            xhr.onreadystatechange = function() {
-              if (xhr.readyState === 4) {
-                if (xhr.status === 200) {
-                  var response = xhr.responseText;
-                  var values = response.split(',');
-                  document.getElementById('value1').textContent = values[0].trim() + " \u2103";
-                  document.getElementById('value2').textContent = values[1].trim() + " \u2103";
-                  document.getElementById('value3').textContent = values[2].trim() + " kg";
-                  document.getElementById('value4').textContent = values[3].trim() + " steps";
-                  document.getElementById('value5').textContent = values[4].trim() + " BPM";
-                } else {
-                  document.getElementById('value1').textContent = "No data!"
-                  document.getElementById('value2').textContent = "No data!"
-                  document.getElementById('value3').textContent = "No data!"
-                  document.getElementById('value4').textContent = "No data!"
-                  document.getElementById('value5').textContent = "No data!"
-                }
-              }
-            };
-            xhr.onerror = function() {
-              document.getElementById('value1').textContent = "No data!"
-              document.getElementById('value2').textContent = "No data!"
-              document.getElementById('value3').textContent = "No data!"
-              document.getElementById('value4').textContent = "No data!"
-              document.getElementById('value5').textContent = "No data!"
-            };
-            xhr.open('GET', '/values', true);
-            xhr.send();
-          }
-      
-          setInterval(updateValues, 500);
-        </script>
-      </body>
-      </html>
+        }
+      };
+      xhr.onerror = function() {
+        document.getElementById('value2').textContent = "No data!";
+        document.getElementById('value3').textContent = "No data!";
+        document.getElementById('value4').textContent = "No data!";
+        document.getElementById('value5').textContent = "No data!";
+      };
+      xhr.open('GET', '/values', true);
+      xhr.send();
+    }
+
+    setInterval(updateValues, 500);
+  </script>
+</body>
+</html>
     )=====";
     request->send(200, "text/html", htmlContent);
   });
@@ -362,11 +371,8 @@ void loop(void) {
   // update OLED screen
   u8g2.clearBuffer();
   u8g2.setCursor(0, 12);
-  u8g2.print("Digital temp: ");
-  u8g2.print(newestStrings[0]);
-  u8g2.print(" ");
-  u8g2.print((char)176);
-  u8g2.print("C");
+  u8g2.print("Health Monitor- ");
+
   u8g2.setCursor(0, 24);
   u8g2.print("Analog temp: ");
   u8g2.print(newestStrings[1]);
